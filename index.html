@@ -33,7 +33,7 @@
 
 <div class="container">
     <header>
-        <h1>🔬 Espectrofotómetro de pH</h1>
+        <h1> Espectrofotómetro de pH (Phenol Red)</h1>
         <button id="btnConnect">Conectar Bluetooth</button>
     </header>
 
@@ -223,15 +223,17 @@
     }
 
     // --- GERAR E DESCARREGAR O EXCEL / CSV ---
+    // --- GERAR E DESCARREGAR O EXCEL / CSV ---
     btnExport.addEventListener('click', () => {
-        // Se só tiver o cabeçalho, avisa que não há dados
         if (csvData.length <= 1) {
             alert("Ainda não há dados para exportar! Inicia uma medição primeiro.");
             return;
         }
 
-        let csvContent = "data:text/csv;charset=utf-8," 
-            + csvData.map(e => e.join(",")).join("\n");
+        // 1. Usamos o ponto e vírgula (;) como separador para o Excel Europeu abrir em colunas
+        // 2. Adicionamos o "\uFEFF" (BOM) para garantir que o Excel reconhece os acentos e UTF-8
+        let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+            + csvData.map(e => e.join(";")).join("\n");
 
         let encodedUri = encodeURI(csvContent);
         let link = document.createElement("a");
