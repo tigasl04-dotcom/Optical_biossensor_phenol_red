@@ -10,7 +10,7 @@
         .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; }
         h1 { margin: 0; color: #2c3e50; }
-        .controls { display: flex; gap: 15px; align-items: center; margin-bottom: 20px; }
+        .controls { display: flex; gap: 15px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
         button { padding: 10px 20px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; transition: 0.3s; }
         #btnConnect { background-color: #3498db; color: white; }
         #btnConnect:hover { background-color: #2980b9; }
@@ -18,6 +18,8 @@
         #btnToggle:hover { background-color: #27ae60; }
         #btnToggle.stop { background-color: #e74c3c; }
         #btnToggle.stop:hover { background-color: #c0392b; }
+        #btnExport { background-color: #f39c12; color: white; }
+        #btnExport:hover { background-color: #e67e22; }
         button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
         .config-box { display: flex; align-items: center; gap: 10px; background: #ecf0f1; padding: 10px; border-radius: 5px; }
         input[type="number"] { width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 3px; }
@@ -37,6 +39,7 @@
 
     <div class="controls">
         <button id="btnToggle" disabled>▶ INICIAR MEDIÇÃO</button>
+        <button id="btnExport">📥 EXPORTAR CSV</button>
         
         <div class="config-box">
             <label for="avgWindow"><strong>Amostras (Média Móvel):</strong></label>
@@ -57,22 +60,25 @@
 <script>
     // --- CONFIGURAÇÃO DO BLUETOOTH (UUIDs Standard UART) ---
     const bleServiceUUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-    const bleTxCharacteristicUUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // ESP32 -> PC
-    const bleRxCharacteristicUUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // PC -> ESP32
+    const bleTxCharacteristicUUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; 
+    const bleRxCharacteristicUUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; 
 
     let bleDevice;
     let bleServer;
     let rxCharacteristic;
     let txCharacteristic;
 
-    // --- VARIÁVEIS DE ESTADO E GRÁFICO ---
+    // --- VARIÁVEIS DE ESTADO E DADOS ---
     let isMeasuring = false;
-    let phHistory = []; // Array para guardar os valores brutos para a média
+    let phHistory = []; 
+    // Nova Tabela invisível que vai guardar os dados todos para o Excel
+    let csvData = [["Hora", "pH Bruto", "pH Suavizado"]]; 
     
     const displayPh = document.getElementById('displayPh');
     const btnConnect = document.getElementById('btnConnect');
     const btnToggle = document.getElementById('btnToggle');
     const avgWindowInput = document.getElementById('avgWindow');
+    const btnExport = document.getElementById('btnExport');
 
     // Inicializar o Gráfico Chart.js
     const ctx = document.getElementById('phChart').getContext('2d');
@@ -97,7 +103,7 @@
                 y: { title: { display: true, text: 'Valor de pH' } },
                 x: { title: { display: true, text: 'Leituras' } }
             },
-            animation: false // Desligar animação para não encravar com muitos dados
+            animation: false
         }
     });
 
@@ -130,7 +136,7 @@
             
         } catch (error) {
             console.error('Erro na ligação Bluetooth:', error);
-            alert('Não foi possível conectar. Verifica se o ESP32 está ligado e com o código BLE a correr.');
+            alert('Não foi possível conectar. Verifica se o ESP32 está ligado e perto.');
         }
     });
 
@@ -156,7 +162,7 @@
             updateToggleButton();
         } catch (error) {
             console.error('Erro ao enviar comando:', error);
-            isMeasuring = !isMeasuring; // reverte em caso de erro
+            isMeasuring = !isMeasuring; 
         }
     });
 
@@ -175,7 +181,6 @@
         let decoder = new TextDecoder();
         let receivedText = decoder.decode(event.target.value).trim();
         
-        // Tentar converter o texto recebido para número
         let rawPh = parseFloat(receivedText);
         
         if (!isNaN(rawPh)) {
@@ -189,7 +194,7 @@
         phHistory.push(rawPh);
         
         if (phHistory.length > windowSize) {
-            phHistory.shift(); // Remove a amostra mais antiga
+            phHistory.shift(); 
         }
 
         // 2. Calcular a Média
@@ -199,14 +204,16 @@
         // 3. Atualizar o Ecrã Gigante
         displayPh.textContent = avgPh.toFixed(2);
 
-        // 4. Atualizar o Gráfico (mostramos o bruto para ver as variações)
+        // 4. Calcular o tempo e Atualizar o CSV e o Gráfico
         let now = new Date();
         let timeLabel = now.getHours() + ':' + now.getMinutes() + ':' + now.getSeconds();
         
+        // Guardar a linha no nosso "Excel invisível" (Nova funcionalidade CSV)
+        csvData.push([timeLabel, rawPh.toFixed(3), avgPh.toFixed(3)]);
+
         phChart.data.labels.push(timeLabel);
         phChart.data.datasets[0].data.push(rawPh);
         
-        // Manter o gráfico limpo (máximo 50 pontos no eixo X)
         if (phChart.data.labels.length > 50) {
             phChart.data.labels.shift();
             phChart.data.datasets[0].data.shift();
@@ -214,6 +221,29 @@
         
         phChart.update();
     }
+
+    // --- GERAR E DESCARREGAR O EXCEL / CSV ---
+    btnExport.addEventListener('click', () => {
+        // Se só tiver o cabeçalho, avisa que não há dados
+        if (csvData.length <= 1) {
+            alert("Ainda não há dados para exportar! Inicia uma medição primeiro.");
+            return;
+        }
+
+        let csvContent = "data:text/csv;charset=utf-8," 
+            + csvData.map(e => e.join(",")).join("\n");
+
+        let encodedUri = encodeURI(csvContent);
+        let link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        
+        let dateStr = new Date().toISOString().slice(0,10);
+        link.setAttribute("download", "Biossensor_Dados_" + dateStr + ".csv");
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    });
 </script>
 
 </body>
