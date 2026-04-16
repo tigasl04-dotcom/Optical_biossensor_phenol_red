@@ -23,9 +23,10 @@
         button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
         .config-box { display: flex; align-items: center; gap: 10px; background: #ecf0f1; padding: 10px; border-radius: 5px; }
         input[type="number"] { width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 3px; }
-        .display-panel { text-align: center; margin: 30px 0; padding: 30px; background: #e8f8f5; border-radius: 10px; border: 2px solid #1abc9c; }
+        .display-panel { text-align: center; margin: 30px 0; padding: 30px; background: #e8f8f5; border-radius: 10px; border: 2px solid #1abc9c; position: relative; }
         .ph-value { font-size: 5em; font-weight: bold; color: #16a085; margin: 0; }
-        .ph-label { font-size: 1.2em; color: #7f8c8d; }
+        .ph-label { font-size: 1.2em; color: #7f8c8d; margin-bottom: 10px;}
+        .debug-panel { display: flex; justify-content: center; gap: 30px; margin-top: 15px; color: #7f8c8d; font-family: monospace; font-size: 1.1em; background: #d1f2eb; padding: 10px; border-radius: 5px; display: inline-flex;}
         canvas { max-height: 400px; }
     </style>
 </head>
@@ -33,13 +34,13 @@
 
 <div class="container">
     <header>
-        <h1> Espectrofotómetro de pH (Phenol Red)</h1>
+        <h1>Espectrofotómetro de pH (Phenol Red)</h1>
         <button id="btnConnect">Conectar Bluetooth</button>
     </header>
 
     <div class="controls">
         <button id="btnToggle" disabled>▶ INICIAR MEDIÇÃO</button>
-        <button id="btnExport"> EXPORTAR CSV</button>
+        <button id="btnExport">EXPORTAR CSV</button>
         
         <div class="config-box">
             <label for="avgWindow"><strong>Amostras (Média Móvel):</strong></label>
@@ -50,6 +51,11 @@
     <div class="display-panel">
         <p class="ph-label">pH Suavizado (Atual)</p>
         <p class="ph-value" id="displayPh">--.--</p>
+        
+        <div class="debug-panel">
+            <span>🔵 V_Azul: <strong id="debugAzul">0.000</strong> V</span>
+            <span>🟢 V_Verde: <strong id="debugVerde">0.000</strong> V</span>
+        </div>
     </div>
 
     <div>
@@ -71,10 +77,12 @@
     // --- VARIÁVEIS DE ESTADO E DADOS ---
     let isMeasuring = false;
     let phHistory = []; 
-    // Nova Tabela invisível que vai guardar os dados todos para o Excel
-    let csvData = [["Hora", "pH Bruto", "pH Suavizado"]]; 
+    // Nova Tabela invisível (AGORA COM 5 COLUNAS PARA O DEBUG!)
+    let csvData = [["Hora", "pH Bruto", "pH Suavizado", "V_Azul (RAW)", "V_Verde (RAW)"]]; 
     
     const displayPh = document.getElementById('displayPh');
+    const debugAzul = document.getElementById('debugAzul');
+    const debugVerde = document.getElementById('debugVerde');
     const btnConnect = document.getElementById('btnConnect');
     const btnToggle = document.getElementById('btnToggle');
     const avgWindowInput = document.getElementById('avgWindow');
@@ -130,7 +138,7 @@
             await txCharacteristic.startNotifications();
             txCharacteristic.addEventListener('characteristicvaluechanged', handleDataReceived);
 
-            btnConnect.textContent = '✅ Conectado';
+            btnConnect.textContent = 'Conectado';
             btnConnect.style.backgroundColor = '#27ae60';
             btnToggle.disabled = false;
             
@@ -176,19 +184,26 @@
         }
     }
 
-    // --- RECEBER E PROCESSAR DADOS ---
+    // --- RECEBER E PROCESSAR DADOS (MODO DEBUG COM STRING DIVIDIDA) ---
     function handleDataReceived(event) {
         let decoder = new TextDecoder();
         let receivedText = decoder.decode(event.target.value).trim();
         
-        let rawPh = parseFloat(receivedText);
+        // Separa a string "pH,VoltAzul,VoltVerde" nos 3 valores originais
+        let parts = receivedText.split(",");
         
-        if (!isNaN(rawPh)) {
-            processNewReading(rawPh);
+        if (parts.length === 3) {
+            let rawPh = parseFloat(parts[0]);
+            let vAzul = parseFloat(parts[1]);
+            let vVerde = parseFloat(parts[2]);
+            
+            if (!isNaN(rawPh) && !isNaN(vAzul) && !isNaN(vVerde)) {
+                processNewReading(rawPh, vAzul, vVerde);
+            }
         }
     }
 
-    function processNewReading(rawPh) {
+    function processNewReading(rawPh, vAzul, vVerde) {
         // 1. Atualizar o histórico para a Média Móvel
         let windowSize = parseInt(avgWindowInput.value) || 20;
         phHistory.push(rawPh);
@@ -201,15 +216,17 @@
         let sum = phHistory.reduce((a, b) => a + b, 0);
         let avgPh = sum / phHistory.length;
 
-        // 3. Atualizar o Ecrã Gigante
+        // 3. Atualizar os Ecrãs (Principal e Debug)
         displayPh.textContent = avgPh.toFixed(2);
+        debugAzul.textContent = vAzul.toFixed(3);
+        debugVerde.textContent = vVerde.toFixed(3);
 
         // 4. Calcular o tempo e Atualizar o CSV e o Gráfico
         let now = new Date();
         let timeLabel = now.getHours() + ':' + now.getMinutes() + ':' + now.getSeconds();
         
-        // Guardar a linha no nosso "Excel invisível" (Nova funcionalidade CSV)
-        csvData.push([timeLabel, rawPh.toFixed(3), avgPh.toFixed(3)]);
+        // Guardar as 5 colunas no nosso "Excel invisível"
+        csvData.push([timeLabel, rawPh.toFixed(3), avgPh.toFixed(3), vAzul.toFixed(3), vVerde.toFixed(3)]);
 
         phChart.data.labels.push(timeLabel);
         phChart.data.datasets[0].data.push(rawPh);
@@ -223,15 +240,13 @@
     }
 
     // --- GERAR E DESCARREGAR O EXCEL / CSV ---
-    // --- GERAR E DESCARREGAR O EXCEL / CSV ---
     btnExport.addEventListener('click', () => {
         if (csvData.length <= 1) {
             alert("Ainda não há dados para exportar! Inicia uma medição primeiro.");
             return;
         }
 
-        // 1. Usamos o ponto e vírgula (;) como separador para o Excel Europeu abrir em colunas
-        // 2. Adicionamos o "\uFEFF" (BOM) para garantir que o Excel reconhece os acentos e UTF-8
+        // Usar ; como separador (Padrão PT/Excel Europeu) e BOM para os caracteres especiais
         let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
             + csvData.map(e => e.join(";")).join("\n");
 
@@ -240,7 +255,7 @@
         link.setAttribute("href", encodedUri);
         
         let dateStr = new Date().toISOString().slice(0,10);
-        link.setAttribute("download", "Biossensor_Dados_" + dateStr + ".csv");
+        link.setAttribute("download", "Biossensor_Dados_ComDebug_" + dateStr + ".csv");
         
         document.body.appendChild(link);
         link.click();
