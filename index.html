@@ -20,6 +20,10 @@
         #btnToggle.stop:hover { background-color: #c0392b; }
         #btnExport { background-color: #f39c12; color: white; }
         #btnExport:hover { background-color: #e67e22; }
+        /* --- NOVO ESTILO PARA O BOTÃO DE REFRESH --- */
+        #btnRefresh { background-color: #9b59b6; color: white; }
+        #btnRefresh:hover { background-color: #8e44ad; }
+        
         button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
         .config-box { display: flex; align-items: center; gap: 10px; background: #ecf0f1; padding: 10px; border-radius: 5px; }
         input[type="number"] { width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 3px; }
@@ -41,6 +45,7 @@
     <div class="controls">
         <button id="btnToggle" disabled>▶ INICIAR MEDIÇÃO</button>
         <button id="btnExport">EXPORTAR CSV</button>
+        <button id="btnRefresh">ATUALIZAR PÁGINA</button>
         
         <div class="config-box">
             <label for="avgWindow"><strong>Amostras (Média Móvel):</strong></label>
@@ -87,6 +92,7 @@
     const btnToggle = document.getElementById('btnToggle');
     const avgWindowInput = document.getElementById('avgWindow');
     const btnExport = document.getElementById('btnExport');
+    const btnRefresh = document.getElementById('btnRefresh'); // --- NOVA REFERÊNCIA ---
 
     // Inicializar o Gráfico Chart.js
     const ctx = document.getElementById('phChart').getContext('2d');
@@ -113,6 +119,12 @@
             },
             animation: false
         }
+    });
+
+    // --- LÓGICA DO BOTÃO REFRESH ---
+    btnRefresh.addEventListener('click', () => {
+        // location.reload() recarrega a página atual
+        location.reload();
     });
 
     // --- LÓGICA DO BLUETOOTH ---
